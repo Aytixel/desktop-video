@@ -98,10 +98,11 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = Default::default();
             let hdc = BeginPaint(window, &mut ps);
-            let mut bmp_vec = vec![];
-            let mut total_image_count = 0;
 
             std::thread::spawn(move || {
+                let mut bmp_vec = vec![];
+                let mut total_image_count = 0;
+
                 for path in fs::read_dir("temp/").unwrap() {
                     let bmp = HBITMAP(LoadImageA(None, path.unwrap().path().to_str().unwrap(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION).0);
 
