@@ -26,8 +26,8 @@ fn main() {
     unsafe {
         let progman = FindWindowW("Progman", PWSTR::NULL);
 
-        SendMessageTimeoutW(progman, 0x052C, WPARAM(0), LPARAM(0), SMTO_NORMAL, 1000, &mut 0);
-        EnumWindows(Some(get_workerw_proc), LPARAM(0));
+        SendMessageTimeoutW(progman, 0x052C, WPARAM::NULL, LPARAM::NULL, SMTO_NORMAL, 1000, &mut 0);
+        EnumWindows(Some(get_workerw_proc), LPARAM::NULL);
 
         let instance = GetModuleHandleA(None);
 
@@ -68,18 +68,18 @@ fn main() {
 
         let mut message = MSG::default();
 
-        while GetMessageA(&mut message, HWND(0), 0, 0).into() { DispatchMessageA(&mut message); }
+        while GetMessageA(&mut message, HWND::NULL, 0, 0).into() { DispatchMessageA(&mut message); }
     }
 }
 
 static mut WORKERW: HWND = HWND::NULL;
 
 unsafe extern "system" fn get_workerw_proc (window: HWND, _: LPARAM) -> BOOL {
-    let p = FindWindowExW(window, HWND(0), "SHELLDLL_DefView", "");
+    let p = FindWindowExW(window, HWND::NULL, "SHELLDLL_DefView", "");
 
-    if p.eq(&HWND(0)) { return BOOL(1) }
+    if p.eq(&HWND::NULL) { return BOOL(1) }
             
-    WORKERW = FindWindowExW(HWND(0), window, "WorkerW", "");
+    WORKERW = FindWindowExW(HWND::NULL, window, "WorkerW", "");
             
     BOOL(0)
 }
@@ -93,7 +93,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             
             Command::new("ffmpeg/bin/ffmpeg").arg("-i").arg(VIDEO_PATH).arg("-r").arg(FRAME_RATE.to_string()).arg("-s").arg(format!("{}x{}", MONITOR_WIDTH, MONITOR_HEIGHT)).arg("temp/temp_%03d.bmp").output().unwrap();
 
-            LRESULT(0)
+            LRESULT::NULL
         }
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = Default::default();
@@ -101,40 +101,44 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             let mut bmp_vec = vec![];
             let mut total_image_count = 0;
 
-            for path in fs::read_dir("temp/").unwrap() {
-                let bmp = HBITMAP(LoadImageA(None, path.unwrap().path().to_str().unwrap(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION).0);
+            std::thread::spawn(move || {
+                for path in fs::read_dir("temp/").unwrap() {
+                    let bmp = HBITMAP(LoadImageA(None, path.unwrap().path().to_str().unwrap(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION).0);
 
-                debug_assert!(!bmp.is_null());
+                    debug_assert!(!bmp.is_null());
 
-                bmp_vec.push(bmp);
-                total_image_count += 1;
-            }
-
-            loop {
-                let mut count = 0;
-
-                for _ in 0..total_image_count {
-                    let now = Instant::now();
-                    let bmp = bmp_vec[count];
-
-                    let dc_src = CreateCompatibleDC(None);
-                    let bmp_prev = SelectObject(dc_src, bmp);
-
-                    BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, dc_src, 0, 0, SRCCOPY);
-                    
-                    SelectObject(dc_src, bmp_prev);
-                    DeleteDC(dc_src);
-
-                    sleep(Duration::from_millis(1000 / FRAME_RATE) - now.elapsed());
-
-                    count += 1;
+                    bmp_vec.push(bmp);
+                    total_image_count += 1;
                 }
-            }
+
+                loop {
+                    let mut count = 0;
+
+                    for _ in 0..total_image_count {
+                        let now = Instant::now();
+                        let bmp = bmp_vec[count];
+
+                        let dc_src = CreateCompatibleDC(None);
+                        let bmp_prev = SelectObject(dc_src, bmp);
+
+                        BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, dc_src, 0, 0, SRCCOPY);
+                        
+                        SelectObject(dc_src, bmp_prev);
+                        DeleteDC(dc_src);
+
+                        sleep(Duration::from_millis(1000 / FRAME_RATE) - now.elapsed());
+
+                        count += 1;
+                    }
+                }
+            });
+
+            LRESULT::NULL
         }
         WM_DESTROY => {
             PostQuitMessage(0);
 
-            LRESULT(0)
+            LRESULT::NULL
         }
         _ => DefWindowProcA(window, message, wparam, lparam),
     }
