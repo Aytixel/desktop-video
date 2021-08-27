@@ -98,6 +98,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = Default::default();
             let hdc = BeginPaint(window, &mut ps);
+            let hdc_src = CreateCompatibleDC(None);
 
             std::thread::spawn(move || {
                 let mut bmp_vec = vec![];
@@ -119,13 +120,8 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                         let now = Instant::now();
                         let bmp = bmp_vec[count];
 
-                        let dc_src = CreateCompatibleDC(None);
-                        let bmp_prev = SelectObject(dc_src, bmp);
-
-                        BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, dc_src, 0, 0, SRCCOPY);
-                        
-                        SelectObject(dc_src, bmp_prev);
-                        DeleteDC(dc_src);
+                        SelectObject(hdc_src, bmp);
+                        BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, hdc_src, 0, 0, SRCCOPY);
 
                         sleep(Duration::from_millis(1000 / FRAME_RATE) - now.elapsed());
 
