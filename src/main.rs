@@ -4,18 +4,22 @@ use bindings::Windows::Win32::{
     UI::WindowsAndMessaging::*,
     Foundation::*,
     System::LibraryLoader::GetModuleHandleA,
-    Graphics::Gdi::*,
-    UI::Controls::*
+    Graphics::Gdi::*
 };
 use std::ptr;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::thread::sleep;
+use std::thread::{
+    sleep,
+    spawn
+};
+use std::mem::size_of;
 use std::time::{
     Instant,
     Duration
 };
+use core::ffi::c_void;
 
 const VIDEO_PATH: &'static str = "demo2.mp4";
 const FRAME_RATE: u64 = 30;
@@ -92,20 +96,37 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             fs::create_dir("temp/").unwrap();
             
             Command::new("ffmpeg/bin/ffmpeg").arg("-i").arg(VIDEO_PATH).arg("-r").arg(FRAME_RATE.to_string()).arg("-s").arg(format!("{}x{}", MONITOR_WIDTH, MONITOR_HEIGHT)).arg("temp/temp_%03d.bmp").output().unwrap();
-
+            
             LRESULT::NULL
         }
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = Default::default();
             let hdc = BeginPaint(window, &mut ps);
             let hdc_src = CreateCompatibleDC(None);
-
-            std::thread::spawn(move || {
+            
+            spawn(move || {
                 let mut bmp_vec = vec![];
                 let mut total_image_count = 0;
 
                 for path in fs::read_dir("temp/").unwrap() {
-                    let bmp = HBITMAP(LoadImageA(None, path.unwrap().path().to_str().unwrap(), IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION).0);
+                    let image = fs::read(path.unwrap().path()).unwrap();
+                    let mut bmp_info: BITMAPINFO = Default::default();
+
+                    bmp_info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+                    bmp_info.bmiHeader.biWidth = MONITOR_WIDTH;
+                    bmp_info.bmiHeader.biHeight = -MONITOR_HEIGHT;
+                    bmp_info.bmiHeader.biPlanes = 1;
+                    bmp_info.bmiHeader.biBitCount = 24;
+                    bmp_info.bmiHeader.biCompression = BI_RGB as u32;
+                    bmp_info.bmiHeader.biSizeImage = 0;
+                    bmp_info.bmiHeader.biXPelsPerMeter = 0;
+                    bmp_info.bmiHeader.biYPelsPerMeter = 0;
+                    bmp_info.bmiHeader.biClrUsed = 0;
+                    bmp_info.bmiHeader.biClrImportant = 0;
+
+                    let bmp = CreateCompatibleBitmap(hdc, MONITOR_WIDTH, MONITOR_HEIGHT);
+
+                    SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, image.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
 
                     debug_assert!(!bmp.is_null());
 
