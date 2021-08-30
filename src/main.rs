@@ -130,7 +130,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
 
                             let bmp = CreateCompatibleBitmap(hdc, MONITOR_WIDTH, MONITOR_HEIGHT);
 
-                            SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, image.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
+                            SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, image[image.len() - (MONITOR_WIDTH * MONITOR_HEIGHT * 3) as usize..image.len()].as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
 
                             bmp_vec.push(bmp);
 
