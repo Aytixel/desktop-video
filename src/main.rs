@@ -9,7 +9,11 @@ use bindings::Windows::Win32::{
 use std::ptr;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{
+    Command,
+    Stdio
+};
+use std::io::prelude::Read;
 use std::thread::{
     sleep,
     spawn
@@ -19,16 +23,19 @@ use std::time::{
     Instant,
     Duration
 };
+use std::env::args;
 use core::ffi::c_void;
 
-const VIDEO_PATH: &'static str = "demo.mp4";
 const FRAME_RATE: u64 = 30;
 const FRAME_DURATION: u64 = 1000 / FRAME_RATE;
+static mut VIDEO_PATH: String = String::new();
 static mut MONITOR_WIDTH: i32 = 1280;
 static mut MONITOR_HEIGHT: i32 = 720;
 
 fn main() {
     unsafe {
+        VIDEO_PATH = args().nth(1).unwrap();
+
         let progman = FindWindowW("Progman", PWSTR::NULL);
 
         SendMessageTimeoutW(progman, 0x052C, WPARAM::NULL, LPARAM::NULL, SMTO_NORMAL, 1000, &mut 0);
@@ -98,68 +105,47 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             
             spawn(move || {
                 let mut bmp_vec = vec![];
-                let video_duration = String::from_utf8(Command::new("ffmpeg/bin/ffprobe").arg("-v").arg("error").arg("-show_entries").arg("format=duration").arg("-of").arg("default=noprint_wrappers=1:nokey=1").arg(VIDEO_PATH).output().unwrap().stdout).unwrap().trim().parse::<f32>().unwrap();
+                let video_duration = String::from_utf8(Command::new("ffprobe").arg("-v").arg("error").arg("-show_entries").arg("format=duration").arg("-of").arg("default=noprint_wrappers=1:nokey=1").arg(VIDEO_PATH.as_str()).output().unwrap().stdout).unwrap().trim().parse::<f32>().unwrap();
                 let total_image_count = (video_duration / (1.0 / FRAME_RATE as f32)).round() as u32;
-
-                if !Path::new("temp/").exists() { fs::create_dir("temp/").unwrap() }
-
-                let mut ffmpeg_thread = Command::new("ffmpeg/bin/ffmpeg").arg("-v").arg("error").arg("-i").arg(VIDEO_PATH).arg("-r").arg(FRAME_RATE.to_string()).arg("-s").arg(format!("{}x{}", MONITOR_WIDTH, MONITOR_HEIGHT)).arg("temp/temp_%01d.bmp").spawn().unwrap();
-
-                for i in 1..total_image_count + 1 {
-                    let path_str = format!("temp/temp_{}.bmp", i);
-
-                    while !Path::new(path_str.as_str()).exists() { sleep(Duration::new(0, 1000)) }
-
-                    loop {
-                        sleep(Duration::new(0, 1000));
-
-                        if let Ok(image) = fs::read(Path::new(path_str.as_str())) {
-                            let mut bmp_info: BITMAPINFO = Default::default();
-
-                            bmp_info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-                            bmp_info.bmiHeader.biWidth = MONITOR_WIDTH;
-                            bmp_info.bmiHeader.biHeight = MONITOR_HEIGHT;
-                            bmp_info.bmiHeader.biPlanes = 1;
-                            bmp_info.bmiHeader.biBitCount = 24;
-                            bmp_info.bmiHeader.biCompression = BI_RGB as u32;
-                            bmp_info.bmiHeader.biSizeImage = 0;
-                            bmp_info.bmiHeader.biXPelsPerMeter = 0;
-                            bmp_info.bmiHeader.biYPelsPerMeter = 0;
-                            bmp_info.bmiHeader.biClrUsed = 0;
-                            bmp_info.bmiHeader.biClrImportant = 0;
-
-                            let bmp = CreateCompatibleBitmap(hdc, MONITOR_WIDTH, MONITOR_HEIGHT);
-
-                            SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, image[image.len() - (MONITOR_WIDTH * MONITOR_HEIGHT * 3) as usize..image.len()].as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
-
-                            bmp_vec.push(bmp);
-
-                            break
-                        }
-                    }
-
-                    loop {
-                        sleep(Duration::new(0, 1000));
-
-                        if let Ok(_) = fs::remove_file(format!("temp/temp_{}.bmp", i)) { break }
-                    }
-                }
-
-                ffmpeg_thread.wait().unwrap();
+                let process = Command::new("ffmpeg").arg("-v").arg("error").arg("-threads").arg("2").arg("-i").arg(VIDEO_PATH.as_str()).arg("-r").arg(FRAME_RATE.to_string()).arg("-s").arg(format!("{}x{}", MONITOR_WIDTH, MONITOR_HEIGHT)).arg("-vf").arg("hflip").arg("-pix_fmt").arg("rgb24").arg("-f").arg("rawvideo").arg("pipe:1").stdout(Stdio::piped()).spawn().unwrap();
+                let mut stdout = process.stdout.unwrap();
+                let mut buffer = vec![0; 1920 * 1080 * 3];
 
                 loop {
-                    let mut count = 0;
+                    for i in 0..total_image_count {
+                        if bmp_vec.len() < total_image_count as usize {
+                            if let Ok(_) = stdout.read_exact(&mut buffer) {
+                                let mut bmp_info: BITMAPINFO = Default::default();
 
-                    for _ in 0..total_image_count {
+                                bmp_info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+                                bmp_info.bmiHeader.biWidth = MONITOR_WIDTH;
+                                bmp_info.bmiHeader.biHeight = MONITOR_HEIGHT;
+                                bmp_info.bmiHeader.biPlanes = 1;
+                                bmp_info.bmiHeader.biBitCount = 24;
+                                bmp_info.bmiHeader.biCompression = BI_RGB as u32;
+                                bmp_info.bmiHeader.biSizeImage = 0;
+                                bmp_info.bmiHeader.biXPelsPerMeter = 0;
+                                bmp_info.bmiHeader.biYPelsPerMeter = 0;
+                                bmp_info.bmiHeader.biClrUsed = 0;
+                                bmp_info.bmiHeader.biClrImportant = 0;
+
+                                let bmp = CreateCompatibleBitmap(hdc, MONITOR_WIDTH, MONITOR_HEIGHT);
+
+                                buffer.reverse();
+
+                                SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, buffer.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
+
+                                bmp_vec.push(bmp);
+                            }
+                        }
+
                         let now = Instant::now();
-                        let bmp = bmp_vec[count];
+                        let bmp = bmp_vec[i as usize];
 
                         SelectObject(hdc_src, bmp);
                         BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, hdc_src, 0, 0, SRCCOPY);
 
                         sleep(Duration::from_millis(FRAME_DURATION) - now.elapsed());
-
-                        count += 1;
                     }
                 }
             });
