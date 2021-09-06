@@ -109,7 +109,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                 let total_image_count = (video_duration / (1.0 / FRAME_RATE as f32)).round() as u32;
                 let process = Command::new("ffmpeg").arg("-v").arg("error").arg("-threads").arg("2").arg("-i").arg(VIDEO_PATH.as_str()).arg("-r").arg(FRAME_RATE.to_string()).arg("-s").arg(format!("{}x{}", MONITOR_WIDTH, MONITOR_HEIGHT)).arg("-vf").arg("hflip").arg("-pix_fmt").arg("rgb24").arg("-f").arg("rawvideo").arg("pipe:1").stdout(Stdio::piped()).spawn().unwrap();
                 let mut stdout = process.stdout.unwrap();
-                let mut buffer = vec![0; MONITOR_WIDTH * MONITOR_HEIGHT * 3];
+                let mut buffer = vec![0; MONITOR_WIDTH as usize * MONITOR_HEIGHT as usize * 3];
 
                 loop {
                     for i in 0..total_image_count {
