@@ -143,7 +143,9 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                         SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, buffer.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
                         BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, hdc_src, 0, 0, SRCCOPY);
 
-                        sleep(Duration::from_millis(FRAME_DURATION) - now.elapsed());
+                        let elapsed = now.elapsed();
+
+                        sleep(if elapsed <= Duration::from_millis(FRAME_DURATION) { Duration::from_millis(FRAME_DURATION) - elapsed } else { Duration::new(0, 0) });
                     }
                 }
             });
