@@ -7,8 +7,6 @@ use bindings::Windows::Win32::{
     Graphics::Gdi::*
 };
 use std::ptr;
-use std::fs;
-use std::path::Path;
 use std::process::{
     Command,
     Stdio
@@ -104,45 +102,45 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             let hdc_src = CreateCompatibleDC(None);
             
             spawn(move || {
-                let mut bmp_vec = vec![];
+                let mut buffer_vec = vec![];
                 let video_duration = String::from_utf8(Command::new("ffprobe").arg("-v").arg("error").arg("-show_entries").arg("format=duration").arg("-of").arg("default=noprint_wrappers=1:nokey=1").arg(VIDEO_PATH.as_str()).output().unwrap().stdout).unwrap().trim().parse::<f32>().unwrap();
                 let total_image_count = (video_duration / (1.0 / FRAME_RATE as f32)).round() as u32;
                 let process = Command::new("ffmpeg").arg("-v").arg("error").arg("-threads").arg("2").arg("-i").arg(VIDEO_PATH.as_str()).arg("-r").arg(FRAME_RATE.to_string()).arg("-s").arg(format!("{}x{}", MONITOR_WIDTH, MONITOR_HEIGHT)).arg("-vf").arg("hflip").arg("-pix_fmt").arg("rgb24").arg("-f").arg("rawvideo").arg("pipe:1").stdout(Stdio::piped()).spawn().unwrap();
                 let mut stdout = process.stdout.unwrap();
-                let mut buffer = vec![0; MONITOR_WIDTH as usize * MONITOR_HEIGHT as usize * 3];
+                let mut bmp_info: BITMAPINFO = Default::default();
+
+                bmp_info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+                bmp_info.bmiHeader.biWidth = MONITOR_WIDTH;
+                bmp_info.bmiHeader.biHeight = MONITOR_HEIGHT;
+                bmp_info.bmiHeader.biPlanes = 1;
+                bmp_info.bmiHeader.biBitCount = 24;
+                bmp_info.bmiHeader.biCompression = BI_RGB as u32;
+                bmp_info.bmiHeader.biSizeImage = 0;
+                bmp_info.bmiHeader.biXPelsPerMeter = 0;
+                bmp_info.bmiHeader.biYPelsPerMeter = 0;
+                bmp_info.bmiHeader.biClrUsed = 0;
+                bmp_info.bmiHeader.biClrImportant = 0;
+
+                let bmp = CreateCompatibleBitmap(hdc, MONITOR_WIDTH, MONITOR_HEIGHT);
+
+                SelectObject(hdc_src, bmp);
 
                 loop {
                     for i in 0..total_image_count {
-                        if bmp_vec.len() < total_image_count as usize {
+                        if buffer_vec.len() < total_image_count as usize {
+                            let mut buffer = vec![0; MONITOR_WIDTH as usize * MONITOR_HEIGHT as usize * 3];
+
                             if let Ok(_) = stdout.read_exact(&mut buffer) {
-                                let mut bmp_info: BITMAPINFO = Default::default();
-
-                                bmp_info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-                                bmp_info.bmiHeader.biWidth = MONITOR_WIDTH;
-                                bmp_info.bmiHeader.biHeight = MONITOR_HEIGHT;
-                                bmp_info.bmiHeader.biPlanes = 1;
-                                bmp_info.bmiHeader.biBitCount = 24;
-                                bmp_info.bmiHeader.biCompression = BI_RGB as u32;
-                                bmp_info.bmiHeader.biSizeImage = 0;
-                                bmp_info.bmiHeader.biXPelsPerMeter = 0;
-                                bmp_info.bmiHeader.biYPelsPerMeter = 0;
-                                bmp_info.bmiHeader.biClrUsed = 0;
-                                bmp_info.bmiHeader.biClrImportant = 0;
-
-                                let bmp = CreateCompatibleBitmap(hdc, MONITOR_WIDTH, MONITOR_HEIGHT);
-
                                 buffer.reverse();
 
-                                SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, buffer.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
-
-                                bmp_vec.push(bmp);
+                                buffer_vec.push(buffer.clone());
                             }
                         }
 
                         let now = Instant::now();
-                        let bmp = bmp_vec[i as usize];
+                        let buffer = &buffer_vec[i as usize];
 
-                        SelectObject(hdc_src, bmp);
+                        SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, buffer.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
                         BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, hdc_src, 0, 0, SRCCOPY);
 
                         sleep(Duration::from_millis(FRAME_DURATION) - now.elapsed());
