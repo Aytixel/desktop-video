@@ -6,6 +6,10 @@ use bindings::Windows::Win32::{
     System::LibraryLoader::GetModuleHandleA,
     Graphics::Gdi::*
 };
+use zstd::block::{
+    compress,
+    decompress
+};
 use std::ptr;
 use std::process::{
     Command,
@@ -24,7 +28,7 @@ use std::time::{
 use std::env::args;
 use core::ffi::c_void;
 
-const FRAME_RATE: u64 = 30;
+const FRAME_RATE: u64 = 24;
 const FRAME_DURATION: u64 = 1000 / FRAME_RATE;
 static mut VIDEO_PATH: String = String::new();
 static mut MONITOR_WIDTH: i32 = 1280;
@@ -127,18 +131,19 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
 
                 loop {
                     for i in 0..total_image_count {
+                        let now = Instant::now();
+
                         if buffer_vec.len() < total_image_count as usize {
                             let mut buffer = vec![0; MONITOR_WIDTH as usize * MONITOR_HEIGHT as usize * 3];
 
                             if let Ok(_) = stdout.read_exact(&mut buffer) {
                                 buffer.reverse();
 
-                                buffer_vec.push(buffer.clone());
+                                buffer_vec.push(compress(&buffer, 1).unwrap());
                             }
                         }
 
-                        let now = Instant::now();
-                        let buffer = &buffer_vec[i as usize];
+                        let buffer = decompress(&buffer_vec[i as usize], MONITOR_WIDTH as usize * MONITOR_HEIGHT as usize * 3).unwrap();
 
                         SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, buffer.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
                         BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, hdc_src, 0, 0, SRCCOPY);
