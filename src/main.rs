@@ -1,43 +1,33 @@
+extern crate vlc_static as vlc;
+
 mod bindings { windows::include_bindings!(); }
 
 use bindings::Windows::Win32::{
     UI::WindowsAndMessaging::*,
     Foundation::*,
-    System::LibraryLoader::GetModuleHandleA,
-    Graphics::Gdi::*
+    System::LibraryLoader::GetModuleHandleA
 };
-use zstd::block::{
-    compress,
-    decompress
+use vlc::{
+    Instance,
+    Media,
+    MediaPlayer
 };
 use std::ptr;
-use std::process::{
-    Command,
-    Stdio
-};
-use std::io::prelude::Read;
-use std::thread::{
-    sleep,
-    spawn
-};
-use std::mem::size_of;
-use std::time::{
-    Instant,
-    Duration
-};
+use std::thread::sleep;
+use std::time::Duration;
 use std::env::args;
 use core::ffi::c_void;
 
-const FRAME_RATE: u64 = 24;
-const FRAME_DURATION: u64 = 1000 / FRAME_RATE;
-static mut VIDEO_PATH: String = String::new();
 static mut MONITOR_WIDTH: i32 = 1280;
 static mut MONITOR_HEIGHT: i32 = 720;
+static mut WORKERW: HWND = HWND::NULL;
 
 fn main() {
     unsafe {
-        VIDEO_PATH = args().nth(1).unwrap();
-
+        let video_path = args().nth(1).unwrap();
+        let instance = Instance::new().unwrap();
+        let media = Media::new_path(&instance, video_path.as_str()).unwrap();
+        let media_player = MediaPlayer::new(&instance).unwrap();
         let progman = FindWindowW("Progman", PWSTR::NULL);
 
         SendMessageTimeoutW(progman, 0x052C, WPARAM::NULL, LPARAM::NULL, SMTO_NORMAL, 1000, &mut 0);
@@ -80,13 +70,25 @@ fn main() {
         debug_assert!(!window.is_null());
         SetParent(window, WORKERW);
 
+        media_player.set_hwnd(window.0 as *mut c_void);
+        
+        play(&media_player, &media);
+
         let mut message = MSG::default();
 
-        while GetMessageA(&mut message, HWND::NULL, 0, 0).into() { DispatchMessageA(&mut message); }
+        loop  {
+            sleep(Duration::from_millis(100));
+
+            if !media_player.is_playing() { play(&media_player, &media); }
+            if GetMessageA(&mut message, HWND::NULL, 0, 0).into() { DispatchMessageA(&mut message); }
+        }
     }
 }
 
-static mut WORKERW: HWND = HWND::NULL;
+fn play(media_player: &MediaPlayer, media: &Media) {
+    media_player.set_media(media);
+    media_player.play().unwrap();
+}
 
 unsafe extern "system" fn get_workerw_proc (window: HWND, _: LPARAM) -> BOOL {
     let p = FindWindowExW(window, HWND::NULL, "SHELLDLL_DefView", "");
@@ -101,60 +103,6 @@ unsafe extern "system" fn get_workerw_proc (window: HWND, _: LPARAM) -> BOOL {
 unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match message as u32 {
         WM_PAINT => {
-            let mut ps: PAINTSTRUCT = Default::default();
-            let hdc = BeginPaint(window, &mut ps);
-            let hdc_src = CreateCompatibleDC(None);
-            
-            spawn(move || {
-                let mut buffer_vec = vec![];
-                let video_duration = String::from_utf8(Command::new("ffprobe").arg("-v").arg("error").arg("-show_entries").arg("format=duration").arg("-of").arg("default=noprint_wrappers=1:nokey=1").arg(VIDEO_PATH.as_str()).output().unwrap().stdout).unwrap().trim().parse::<f32>().unwrap();
-                let total_image_count = (video_duration / (1.0 / FRAME_RATE as f32)).round() as u32;
-                let process = Command::new("ffmpeg").arg("-v").arg("error").arg("-threads").arg("2").arg("-i").arg(VIDEO_PATH.as_str()).arg("-r").arg(FRAME_RATE.to_string()).arg("-s").arg(format!("{}x{}", MONITOR_WIDTH, MONITOR_HEIGHT)).arg("-vf").arg("hflip").arg("-pix_fmt").arg("rgb24").arg("-f").arg("rawvideo").arg("pipe:1").stdout(Stdio::piped()).spawn().unwrap();
-                let mut stdout = process.stdout.unwrap();
-                let mut bmp_info: BITMAPINFO = Default::default();
-
-                bmp_info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-                bmp_info.bmiHeader.biWidth = MONITOR_WIDTH;
-                bmp_info.bmiHeader.biHeight = MONITOR_HEIGHT;
-                bmp_info.bmiHeader.biPlanes = 1;
-                bmp_info.bmiHeader.biBitCount = 24;
-                bmp_info.bmiHeader.biCompression = BI_RGB as u32;
-                bmp_info.bmiHeader.biSizeImage = 0;
-                bmp_info.bmiHeader.biXPelsPerMeter = 0;
-                bmp_info.bmiHeader.biYPelsPerMeter = 0;
-                bmp_info.bmiHeader.biClrUsed = 0;
-                bmp_info.bmiHeader.biClrImportant = 0;
-
-                let bmp = CreateCompatibleBitmap(hdc, MONITOR_WIDTH, MONITOR_HEIGHT);
-
-                SelectObject(hdc_src, bmp);
-
-                loop {
-                    for i in 0..total_image_count {
-                        let now = Instant::now();
-
-                        if buffer_vec.len() < total_image_count as usize {
-                            let mut buffer = vec![0; MONITOR_WIDTH as usize * MONITOR_HEIGHT as usize * 3];
-
-                            if let Ok(_) = stdout.read_exact(&mut buffer) {
-                                buffer.reverse();
-
-                                buffer_vec.push(compress(&buffer, 1).unwrap());
-                            }
-                        }
-
-                        let buffer = decompress(&buffer_vec[i as usize], MONITOR_WIDTH as usize * MONITOR_HEIGHT as usize * 3).unwrap();
-
-                        SetDIBits(None, bmp, 0, MONITOR_HEIGHT as u32, buffer.as_ptr() as *const c_void, &bmp_info, DIB_RGB_COLORS);
-                        BitBlt(hdc, 0, 0, MONITOR_WIDTH, MONITOR_HEIGHT, hdc_src, 0, 0, SRCCOPY);
-
-                        let elapsed = now.elapsed();
-
-                        sleep(if elapsed <= Duration::from_millis(FRAME_DURATION) { Duration::from_millis(FRAME_DURATION) - elapsed } else { Duration::new(0, 0) });
-                    }
-                }
-            });
-
             LRESULT::NULL
         }
         WM_DESTROY => {
