@@ -69,7 +69,7 @@ checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
 [[package]]
 name = "vlc-static"
 version = "0.1.0"
-source = "git+https://github.com/fschutt/vlc-static-rs#a4db3bea0d56a8909f269a8086f957ba34aceb38"
+source = "git+https://github.com/Aytixel/vlc-static-rs#b4b75c4ce911bd78b8d16a956fb3f6247baf5202"
 dependencies = [
  "libc",
  "libloading-mini",

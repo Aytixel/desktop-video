@@ -10,7 +10,9 @@ use bindings::Windows::Win32::{
 use vlc::{
     Instance,
     Media,
-    MediaPlayer
+    MediaPlayer,
+    MediaPlayerVideoEx,
+    sys::get_vlc_dll
 };
 use std::ptr;
 use std::thread::sleep;
@@ -25,9 +27,9 @@ static mut WORKERW: HWND = HWND::NULL;
 fn main() {
     unsafe {
         let video_path = args().nth(1).unwrap();
-        let instance = Instance::new().unwrap();
-        let media = Media::new_path(&instance, video_path.as_str()).unwrap();
-        let media_player = MediaPlayer::new(&instance).unwrap();
+        let vlc_instance = Instance::new().unwrap();
+        let media = Media::new_path(&vlc_instance, video_path.as_str()).unwrap();
+        let media_player = MediaPlayer::new(&vlc_instance).unwrap();
         let progman = FindWindowW("Progman", PWSTR::NULL);
 
         SendMessageTimeoutW(progman, 0x052C, WPARAM::NULL, LPARAM::NULL, SMTO_NORMAL, 1000, &mut 0);
@@ -70,9 +72,13 @@ fn main() {
         debug_assert!(!window.is_null());
         SetParent(window, WORKERW);
 
+        (get_vlc_dll().libvlc_audio_set_mute)(media_player.raw(), 1);
+
+        media_player.set_key_input(false);
+        media_player.set_mouse_input(false);
         media_player.set_hwnd(window.0 as *mut c_void);
-        
-        play(&media_player, &media);
+        media_player.set_media(&media);
+        media_player.play().unwrap();
 
         let mut message = MSG::default();
 
